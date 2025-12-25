@@ -1,4 +1,4 @@
-package org.example.proiectlab.model;
+package org.example.proiect.model;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
