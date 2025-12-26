@@ -130,7 +130,7 @@ export default function Login() {
 
           {isLogin && (
             <div className="text-center text-xs text-gray-500">
-              Demo credentials: demo / password
+              Demo credentials: admin / admin
             </div>
           )}
         </form>
