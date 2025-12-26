@@ -1,0 +1,137 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: stockmarket-db
+    environment:
+      POSTGRES_DB: ${DB_NAME:-stockmarket}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-stockmarket}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - stockmarket-network
+
+  # Spring Boot Gateway
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stockmarket-gateway
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-stockmarket}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+      - JWT_SECRET_FILE=/run/secrets/jwt_secret
+      - ANALYTICS_SERVICE_URL=http://analytics:8081
+    secrets:
+      - db_password
+      - jwt_secret
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    networks:
+      - stockmarket-network
+
+  # Rust Analytics Service
+  analytics:
+    build:
+      context: ./analytics-service
+      dockerfile: Dockerfile
+    container_name: stockmarket-analytics
+    environment:
+      - RUST_LOG=info
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-stockmarket}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+      - GATEWAY_URL=http://gateway:8080
+      - PORT=8081
+    secrets:
+      - db_password
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    networks:
+      - stockmarket-network
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: stockmarket-frontend
+    ports:
+      - "3005:80"
+    depends_on:
+      - gateway
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+      - stockmarket-network
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: stockmarket-prometheus
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - stockmarket-network
+
+networks:
+  stockmarket-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  prometheus_data:
+
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt

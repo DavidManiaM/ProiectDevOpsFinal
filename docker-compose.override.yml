@@ -1,0 +1,32 @@
+# Development overrides for docker-compose
+
+services:
+  gateway:
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - LOGGING_LEVEL_ORG_EXAMPLE_PROIECTLAB=DEBUG
+    volumes:
+      - ./src:/app/src:ro
+    ports:
+      - "8080:8080"
+      - "5005:5005"  # Debug port
+    command: ["java", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005", "-jar", "app.jar"]
+
+  analytics:
+    environment:
+      - RUST_LOG=debug
+    ports:
+      - "8081:8081"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./frontend/src:/app/src:ro
+    ports:
+      - "3001:3000"
+    environment:
+      - VITE_API_URL=http://localhost:8080
+      - VITE_WS_URL=http://localhost:8080/ws
+
